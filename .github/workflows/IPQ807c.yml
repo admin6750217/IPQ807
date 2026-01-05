@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete old Releases/Workflows
-        uses: ophub/delete-releases@main
+        uses: ophub/delete-releases-workflows@main
         with:
           gh_token: ${{ secrets.GITHUB_TOKEN }}
           delete_releases: true
@@ -74,7 +74,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Apply Packages & Patches & Config
+      - name: Apply Packages, Patches & Config
         run: |
           #!/bin/bash
           set -e
