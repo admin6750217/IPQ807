@@ -49,7 +49,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
       - name: Clean GH Actions cache
-        run: gh cache delete --all
+        run: gh cache delete --all || true   # 避免“无缓存”报错
 
   # ===========================
   # 3️⃣ CI Build
