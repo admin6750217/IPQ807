@@ -74,6 +74,193 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Prepare Packages & Config
+        run: |
+          #!/bin/bash
+          set -e
+
+          # -----------------------------
+          # 创建 wtp/package 目录，避免 cd 报错
+          # -----------------------------
+          PKG_PATH="$GITHUB_WORKSPACE/wrt/package/"
+          mkdir -p "$PKG_PATH"
+          cd "$PKG_PATH"
+
+          # -----------------------------
+          # UPDATE_PACKAGE 函数
+          # -----------------------------
+          UPDATE_PACKAGE() {
+            local PKG_NAME=$1
+            local PKG_REPO=$2
+            local PKG_BRANCH=$3
+            local PKG_SPECIAL=$4
+            local PKG_LIST=("$PKG_NAME" $5)
+            local REPO_NAME=${PKG_REPO#*/}
+
+            # 删除同名旧目录
+            for NAME in "${PKG_LIST[@]}"; do
+              local FOUND_DIRS=$(find ../feeds/luci/ ../feeds/packages/ -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
+              if [ -n "$FOUND_DIRS" ]; then
+                while read -r DIR; do
+                  rm -rf "$DIR"
+                  echo "Deleted $DIR"
+                done <<< "$FOUND_DIRS"
+              fi
+            done
+
+            # 克隆最新插件
+            git clone --depth=1 --single-branch --branch $PKG_BRANCH "https://github.com/$PKG_REPO.git"
+            if [[ "$PKG_SPECIAL" == "pkg" ]]; then
+              find ./$REPO_NAME/*/ -maxdepth 3 -type d -iname "*$PKG_NAME*" -prune -exec cp -rf {} ./ \;
+              rm -rf ./$REPO_NAME/
+            elif [[ "$PKG_SPECIAL" == "name" ]]; then
+              mv -f $REPO_NAME $PKG_NAME
+            fi
+          }
+
+          # -----------------------------
+          # 更新示例插件
+          # -----------------------------
+          UPDATE_PACKAGE "argon" "sbwml/luci-theme-argon" "openwrt-25.12"
+          UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
+          UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
+          UPDATE_PACKAGE "homeproxy" "VIKINGYFY/homeproxy" "main"
+
+          # -----------------------------
+          # HomeProxy 数据更新
+          # -----------------------------
+          if [ -d *"homeproxy"* ]; then
+            HP_RULE="surge"
+            HP_PATH="homeproxy/root/etc/homeproxy"
+            rm -rf ./$HP_PATH/resources/*
+            git clone -q --depth=1 --single-branch --branch "release" "https://github.com/Loyalsoldier/surge-rules.git" ./$HP_RULE/
+            cd ./$HP_RULE/ && RES_VER=$(git log -1 --pretty=format:'%s' | grep -o "[0-9]*")
+            echo $RES_VER | tee china_ip4.ver china_ip6.ver china_list.ver gfw_list.ver
+            awk -F, '/^IP-CIDR,/{print $2 > "china_ip4.txt"} /^IP-CIDR6,/{print $2 > "china_ip6.txt"}' cncidr.txt
+            sed 's/^\.//g' direct.txt > china_list.txt ; sed 's/^\.//g' gfw.txt > gfw_list.txt
+            mv -f ./{china_*,gfw_list}.{ver,txt} ../$HP_PATH/resources/
+            cd .. && rm -rf ./$HP_RULE/
+          fi
+
+          # -----------------------------
+          # Argon主题调整
+          # -----------------------------
+          if [ -d *"luci-theme-argon"* ]; then
+            cd ./luci-theme-argon/
+            sed -i "s/primary '.*'/primary '#31a1a1'/; s/'0.2'/'0.5'/; s/'none'/'bing'/; s/'600'/'normal'/" ./luci-app-argon-config/root/etc/config/argon
+            cd $PKG_PATH
+          fi
+
+          # -----------------------------
+          # NSS 驱动顺序调整
+          # -----------------------------
+          NSS_DRV="../feeds/nss_packages/qca-nss-drv/files/qca-nss-drv.init"
+          [ -f "$NSS_DRV" ] && sed -i 's/START=.*/START=85/g' $NSS_DRV
+          NSS_PBUF="./kernel/mac80211/files/qca-nss-pbuf.init"
+          [ -f "$NSS_PBUF" ] && sed -i 's/START=.*/START=86/g' $NSS_PBUF
+
+          # -----------------------------
+          # TailScale / Rust / DiskMan / NetSpeedTest 修复
+          # -----------------------------
+          TS_FILE=$(find ../feeds/packages/ -maxdepth 3 -type f -wholename "*/tailscale/Makefile")
+          [ -f "$TS_FILE" ] && sed -i '/\/files/d' $TS_FILE
+          RUST_FILE=$(find ../feeds/packages/ -maxdepth 3 -type f -wholename "*/rust/Makefile")
+          [ -f "$RUST_FILE" ] && sed -i 's/ci-llvm=true/ci-llvm=false/g' $RUST_FILE
+          DM_FILE="./luci-app-diskman/applications/luci-app-diskman/Makefile"
+          [ -f "$DM_FILE" ] && sed -i 's/fs-ntfs/fs-ntfs3/g; /ntfs-3g-utils /d' $DM_FILE
+          if [ -d *"luci-app-netspeedtest"* ]; then
+            cd ./luci-app-netspeedtest/
+            sed -i '$a\exit 0' ./netspeedtest/files/99_netspeedtest.defaults
+            sed -i 's/ca-certificates/ca-bundle/g' ./speedtest-cli/Makefile
+            cd $PKG_PATH
+          fi
+
+          # -----------------------------
+          # .config 生成（高通 IPQ807X 设备矩阵）
+          # -----------------------------
+          echo "CONFIG_TARGET_qualcommax=y" > .config
+          echo "CONFIG_TARGET_qualcommax_ipq807x=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_${{ matrix.DEVICE }}=y" >> .config
+
+          # 默认主题 Aurora + Bootstrap
+          echo "CONFIG_PACKAGE_luci-theme-aurora=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-aurora-config=y" >> .config
+          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+
+          # 基础插件/参数
+          echo "CONFIG_PACKAGE_luci-app-homeproxy=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-autoreboot=y" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+          echo "CONFIG_DEVEL=y" >> .config
+          echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
+          echo "CONFIG_TARGET_PER_DEVICE_ROOTFS=y" >> .config
+
+          # 手动插件
+          if [ -n "${{ github.event.inputs.PACKAGE }}" ]; then
+              echo -e "${{ github.event.inputs.PACKAGE }}" >> ./.config
+          fi
+
+          # 高通 NSS / SQM 调整
+          echo "CONFIG_FEED_nss_packages=n" >> .config
+          echo "CONFIG_FEED_sqm_scripts_nss=n" >> .config
+          echo "CONFIG_PACKAGE_luci-app-sqm=y" >> .config
+          echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> .config
+          echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=y" >> .config
+
+      - name: Run WRT Core
+        uses: ./.github/workflows/WRT-CORE.yml
+        with:
+          WRT_CONFIG: ${{ matrix.DEVICE }}
+          WRT_THEME: aurora
+          WRT_NAME: IPQ807X
+          WRT_SSID: QCA
+          WRT_WORD: 12345678
+          WRT_IP: 192.168.10.1
+          WRT_PW: 无
+          WRT_REPO: https://github.com/VIKINGYFY/immortalwrt.git
+          WRT_BRANCH: main
+          WRT_SOURCE: VIKINGYFY/immortalwrt
+          WRT_PACKAGE: ${{ github.event.inputs.PACKAGE }}
+          WRT_TEST: ${{ github.event.inputs.TEST }}          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 0
+
+  # ===========================
+  # 2️⃣ 清理 Cache
+  # ===========================
+  cache_clean:
+    name: Cache Clean
+    runs-on: ubuntu-latest
+    needs: auto_clean
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Clean GH Actions cache
+        run: gh cache delete --all || true   # 避免“无缓存”报错
+
+  # ===========================
+  # 3️⃣ CI Build
+  # ===========================
+  ci_build:
+    name: QCA-ALL CI Build
+    runs-on: ubuntu-latest
+    needs: cache_clean
+    strategy:
+      fail-fast: false
+      matrix:
+        DEVICE: [
+          aliyun_ap8220,
+          redmi_ax6,
+          redmi_ax6-stock,
+          xiaomi_ax3600,
+          xiaomi_ax3600-stock,
+          xiaomi_ax9000,
+          xiaomi_ax9000-stock
+        ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
       - name: Apply Packages, Patches & Config
         run: |
           #!/bin/bash
