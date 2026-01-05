@@ -1,71 +1,67 @@
-# Workflow 名称
 name: Full-Auto-CI
 
-# 触发条件
 on:
   schedule:
-    - cron: "0 22 * * *"  # 每天 22 点自动触发 CI 编译
-  workflow_dispatch:       # 支持手动触发
+    - cron: "0 22 * * *"  # 每天 22 点自动触发
+  workflow_dispatch:
     inputs:
-      PACKAGE:             # 手动输入插件列表
+      PACKAGE:
         description: '手动调整插件包，多个请用 \\n 符号隔开'
         required: false
         type: string
-      TEST:                # 手动控制是否只输出配置文件，不实际编译
+      TEST:
         description: '仅输出配置文件，不编译固件'
         default: 'false'
         required: false
         type: boolean
 
-# Workflow 权限
-permissions: write-all  # 允许 Workflow 对仓库进行写操作
+permissions: write-all
 
-# 全局环境变量
 env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub 提供的 token，用于操作 release、clone 私有仓库等
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   # ===========================
-  # 1️⃣ Auto-Clean Releases/Workflows
+  # 1️⃣ 自动清理旧 Release / Workflow
   # ===========================
   auto_clean:
     name: Auto-Clean
-    runs-on: ubuntu-latest  # 使用最新 Ubuntu 作为 Runner
+    runs-on: ubuntu-latest
     steps:
       - name: Delete old Releases/Workflows
-        uses: ophub/delete-releases-@main  # 使用社区 Action 删除旧 Release 和 Workflow
+        uses: ophub/delete-releases@main
         with:
-          gh_token: ${{ secrets.GITHUB_TOKEN }}  # 使用 token 进行身份验证
-          delete_releases: true                 # 删除 Release
-          releases_keep_latest: 0               # 不保留任何 Release
-          delete_tags: true                     # 删除相关 Git tag
-          delete_workflows: true                # 删除 Workflow 历史运行
-          workflows_keep_day: 0                 # 不保留任何 Workflow 历史
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+          delete_releases: true
+          releases_keep_latest: 0
+          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 0
 
   # ===========================
-  # 2️⃣ Cache Clean
+  # 2️⃣ 清理 Cache
   # ===========================
   cache_clean:
     name: Cache Clean
     runs-on: ubuntu-latest
-    needs: auto_clean  # 必须等待 auto_clean 完成
+    needs: auto_clean
     steps:
       - name: Checkout repository
-        uses: actions/checkout@main  # 拉取当前仓库代码
+        uses: actions/checkout@v3
       - name: Clean GH Actions cache
-        run: gh cache delete --all  # 删除 GitHub Actions 所有缓存，避免旧依赖影响编译
+        run: gh cache delete --all
 
   # ===========================
-  # 3️⃣ CI Build (插件更新 + Patch + 配置生成)
+  # 3️⃣ CI Build
   # ===========================
   ci_build:
     name: QCA-ALL CI Build
     runs-on: ubuntu-latest
-    needs: cache_clean   # 必须在缓存清理后执行
+    needs: cache_clean
     strategy:
-      fail-fast: false   # 单个设备失败不影响其他设备
+      fail-fast: false
       matrix:
-        DEVICE: [        # 构建设备列表，去掉不需要的设备
+        DEVICE: [
           aliyun_ap8220,
           redmi_ax6,
           redmi_ax6-stock,
@@ -75,34 +71,27 @@ jobs:
           xiaomi_ax9000-stock
         ]
     steps:
-      # --------------------------
-      # 1. Checkout 仓库
-      # --------------------------
       - name: Checkout repository
-        uses: actions/checkout@main
+        uses: actions/checkout@v3
 
-      # --------------------------
-      # 2. 更新插件、应用 Patch、生成 .config
-      # --------------------------
       - name: Apply Packages & Patches & Config
         run: |
           #!/bin/bash
-          set -e  # 遇到错误立即退出
+          set -e
+          PKG_PATH="$GITHUB_WORKSPACE/wrt/package/"
 
-          PKG_PATH="$GITHUB_WORKSPACE/wrt/package/"  # 插件包路径
-
-          echo "=== Updating Packages ==="
-          # -------------------------------
-          # UPDATE_PACKAGE 函数，用于更新/安装插件
+          # -----------------------------
+          # UPDATE_PACKAGE 函数，用于拉取和更新插件
+          # -----------------------------
           UPDATE_PACKAGE() {
-            local PKG_NAME=$1       # 插件名称
-            local PKG_REPO=$2       # GitHub 仓库地址
-            local PKG_BRANCH=$3     # 分支
-            local PKG_SPECIAL=$4    # 特殊处理标志：pkg=提取包目录，name=重命名
-            local PKG_LIST=("$PKG_NAME" $5)  # 需要删除的同名目录
-            local REPO_NAME=${PKG_REPO#*/}  # 仓库名称
+            local PKG_NAME=$1
+            local PKG_REPO=$2
+            local PKG_BRANCH=$3
+            local PKG_SPECIAL=$4
+            local PKG_LIST=("$PKG_NAME" $5)
+            local REPO_NAME=${PKG_REPO#*/}
 
-            # 删除旧插件目录
+            # 删除同名旧目录
             for NAME in "${PKG_LIST[@]}"; do
               local FOUND_DIRS=$(find ../feeds/luci/ ../feeds/packages/ -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
               if [ -n "$FOUND_DIRS" ]; then
@@ -115,7 +104,6 @@ jobs:
 
             # 克隆最新插件
             git clone --depth=1 --single-branch --branch $PKG_BRANCH "https://github.com/$PKG_REPO.git"
-            # 根据特殊标志处理
             if [[ "$PKG_SPECIAL" == "pkg" ]]; then
               find ./$REPO_NAME/*/ -maxdepth 3 -type d -iname "*$PKG_NAME*" -prune -exec cp -rf {} ./ \;
               rm -rf ./$REPO_NAME/
@@ -124,15 +112,17 @@ jobs:
             fi
           }
 
-          # -------------------------------
+          # -----------------------------
           # 示例插件更新
+          # -----------------------------
           UPDATE_PACKAGE "argon" "sbwml/luci-theme-argon" "openwrt-25.12"
           UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
+          UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
           UPDATE_PACKAGE "homeproxy" "VIKINGYFY/homeproxy" "main"
 
-          echo "=== Applying Patches ==="
-          # -------------------------------
+          # -----------------------------
           # HomeProxy 数据更新
+          # -----------------------------
           if [ -d *"homeproxy"* ]; then
             HP_RULE="surge"
             HP_PATH="homeproxy/root/etc/homeproxy"
@@ -146,20 +136,26 @@ jobs:
             cd .. && rm -rf ./$HP_RULE/
           fi
 
-          # Argon主题修改
+          # -----------------------------
+          # Argon主题调整
+          # -----------------------------
           if [ -d *"luci-theme-argon"* ]; then
             cd ./luci-theme-argon/
             sed -i "s/primary '.*'/primary '#31a1a1'/; s/'0.2'/'0.5'/; s/'none'/'bing'/; s/'600'/'normal'/" ./luci-app-argon-config/root/etc/config/argon
             cd $PKG_PATH
           fi
 
+          # -----------------------------
           # NSS 驱动顺序调整
+          # -----------------------------
           NSS_DRV="../feeds/nss_packages/qca-nss-drv/files/qca-nss-drv.init"
           [ -f "$NSS_DRV" ] && sed -i 's/START=.*/START=85/g' $NSS_DRV
           NSS_PBUF="./kernel/mac80211/files/qca-nss-pbuf.init"
           [ -f "$NSS_PBUF" ] && sed -i 's/START=.*/START=86/g' $NSS_PBUF
 
-          # TailScale/Rust/DiskMan/NetSpeedTest 修复
+          # -----------------------------
+          # TailScale / Rust / DiskMan / NetSpeedTest 修复
+          # -----------------------------
           TS_FILE=$(find ../feeds/packages/ -maxdepth 3 -type f -wholename "*/tailscale/Makefile")
           [ -f "$TS_FILE" ] && sed -i '/\/files/d' $TS_FILE
           RUST_FILE=$(find ../feeds/packages/ -maxdepth 3 -type f -wholename "*/rust/Makefile")
@@ -173,20 +169,19 @@ jobs:
             cd $PKG_PATH
           fi
 
-          echo "=== Applying Device Config ==="
-          # -------------------------------
-          # 基础设备平台
+          # -----------------------------
+          # .config 生成（高通 IPQ807X 设备矩阵）
+          # -----------------------------
           echo "CONFIG_TARGET_qualcommax=y" > .config
           echo "CONFIG_TARGET_qualcommax_ipq807x=y" >> .config
           echo "CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_${{ matrix.DEVICE }}=y" >> .config
 
-          # 默认主题：Aurora + Bootstrap
-          DEFAULT_THEME="aurora"
-          echo "CONFIG_PACKAGE_luci-theme-$DEFAULT_THEME=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-$DEFAULT_THEME-config=y" >> .config
+          # 默认主题 Aurora + Bootstrap
+          echo "CONFIG_PACKAGE_luci-theme-aurora=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-aurora-config=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
 
-          # 插件/参数
+          # 基础插件/参数
           echo "CONFIG_PACKAGE_luci-app-homeproxy=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-autoreboot=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
@@ -194,37 +189,30 @@ jobs:
           echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
           echo "CONFIG_TARGET_PER_DEVICE_ROOTFS=y" >> .config
 
-          # 添加手动输入插件
+          # 手动插件
           if [ -n "${{ github.event.inputs.PACKAGE }}" ]; then
               echo -e "${{ github.event.inputs.PACKAGE }}" >> ./.config
           fi
 
-          # 高通平台调整
-          DTS_PATH="./target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/"
+          # 高通 NSS / SQM 调整
           echo "CONFIG_FEED_nss_packages=n" >> .config
           echo "CONFIG_FEED_sqm_scripts_nss=n" >> .config
           echo "CONFIG_PACKAGE_luci-app-sqm=y" >> .config
           echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> .config
           echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=y" >> .config
-          sed -i "s/192\.168\.[0-9]*\.[0-9]*/192.168.10.1/g" ./package/base-files/files/bin/config_generate
-          sed -i "s/hostname='.*'/hostname='IPQ807X'/g" ./package/base-files/files/bin/config_generate
-          sed -i "s/luci-theme-bootstrap/luci-theme-$DEFAULT_THEME/g" $(find ./feeds/luci/collections/ -type f -name "Makefile")
 
-      # --------------------------
-      # 3. 调用公用编译核心
-      # --------------------------
       - name: Run WRT Core
         uses: ./.github/workflows/WRT-CORE.yml
         with:
-          WRT_CONFIG: ${{ matrix.DEVICE }}       # 当前设备
-          WRT_THEME: aurora                       # 默认主题 Aurora
-          WRT_NAME: IPQ807X                       # 默认主机名
-          WRT_SSID: QCA                           # 默认 Wi-Fi 名称
-          WRT_WORD: 12345678                      # 默认 Wi-Fi 密码
-          WRT_IP: 192.168.10.1                    # 默认 IP
-          WRT_PW: 无                               # 默认密码，仅提示
-          WRT_REPO: https://github.com/VIKINGYFY/immortalwrt.git  # 源码仓库
-          WRT_BRANCH: main                         # 分支
-          WRT_SOURCE: VIKINGYFY/immortalwrt       # 源码名称
-          WRT_PACKAGE: ${{ github.event.inputs.PACKAGE }}  # 手动插件
-          WRT_TEST: ${{ github.event.inputs.TEST }}        # 测试标志
+          WRT_CONFIG: ${{ matrix.DEVICE }}
+          WRT_THEME: aurora
+          WRT_NAME: IPQ807X
+          WRT_SSID: QCA
+          WRT_WORD: 12345678
+          WRT_IP: 192.168.10.1
+          WRT_PW: 无
+          WRT_REPO: https://github.com/VIKINGYFY/immortalwrt.git
+          WRT_BRANCH: main
+          WRT_SOURCE: VIKINGYFY/immortalwrt
+          WRT_PACKAGE: ${{ github.event.inputs.PACKAGE }}
+          WRT_TEST: ${{ github.event.inputs.TEST }}
