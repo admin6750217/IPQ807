@@ -74,6 +74,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Update Feeds
+        run: |
+          cd $GITHUB_WORKSPACE/wrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
       - name: Prepare Packages & Config
         run: |
           #!/bin/bash
@@ -99,7 +105,7 @@ jobs:
 
             # 删除同名旧目录
             for NAME in "${PKG_LIST[@]}"; do
-              local FOUND_DIRS=$(find ../feeds/luci/ ../feeds/packages/ -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
+              [ -d "../feeds/packages/" ] && local FOUND_DIRS=$(find ../feeds/luci/ ../feeds/packages/ -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
               if [ -n "$FOUND_DIRS" ]; then
                 while read -r DIR; do
                   rm -rf "$DIR"
