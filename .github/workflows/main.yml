@@ -1,0 +1,108 @@
+# CI项目
+name: QCA-ALL
+
+# CI计划
+on:
+  # 自动编译：当Auto-Clean运行完成后
+  workflow_run:
+    workflows: ["Auto-Clean"]
+    types:
+      - completed
+  # 手动编译
+  workflow_dispatch:
+    inputs:
+      PACKAGE:
+        description: '手动调整插件包，多个请用\n符号隔开。'
+        required: false
+        type: string
+      TEST:
+        description: '仅输出配置文件，不编译固件。'
+        default: 'false'
+        required: false
+        type: boolean
+  # Auto-Clean的定时触发（每天6点自动清理）
+  schedule:
+    - cron: '0 22 * * *'
+  # Cache-Clean的定时触发（每周日20点）
+    - cron: '0 20 * * 0'
+
+# CI权限
+permissions: write-all
+
+# CI任务
+jobs:
+  # Auto-Clean任务
+  auto_clean:
+    name: Auto-Clean
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old Releases and Workflows
+        uses: ophub/delete-releases-workflows@main
+        with:
+          gh_token: ${{secrets.GITHUB_TOKEN}}
+          delete_releases: true
+          releases_keep_latest: 0
+          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 0
+
+  # Cache-Clean任务
+  cache_clean:
+    name: Cache-Clean
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Projects
+        uses: actions/checkout@v2
+
+      - name: Install GitHub CLI
+        run: sudo apt-get install gh
+
+      - name: Cache Clean
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 设置 GH_TOKEN 环境变量
+        run: gh cache delete --all
+
+  # 编译任务
+  config:
+    name: ${{matrix.CONFIG}}
+    strategy:
+      fail-fast: false
+      matrix:
+        CONFIG: [IPQ807X-WIFI-YES]
+        SOURCE: [VIKINGYFY/immortalwrt]
+        BRANCH: [main]
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git curl
+
+      - name: Clone the source repo
+        run: |
+          git clone https://github.com/${{matrix.SOURCE}}.git
+          cd ${{matrix.SOURCE}}
+          git checkout ${{matrix.BRANCH}}
+
+      - name: Configure the build
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+
+      - name: Build firmware
+        run: |
+          make -j$(nproc) V=s
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: firmware-artifact
+          path: bin/
+
+      - name: Notify completion
+        run: echo "Build completed successfully!"
