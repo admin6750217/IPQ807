@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# 检查当前nf_conntrack_max值是否小于165536，若更小则修改
+current_value=$(sysctl -n net.netfilter.nf_conntrack_max)
+if [ "$current_value" -lt 165535 ]; then
+    # 从sysctl.conf删除旧的nf_conntrack_max配置以避免重复
+    sed -i '/nf_conntrack_max/d' /etc/sysctl.conf
+    # 写入新配置，设置最大连接数为165535
+    echo "net.netfilter.nf_conntrack_max = 165535" >>/etc/sysctl.conf
+    # 应用配置并立即生效
+    sysctl -p
+fi
+
 #移除luci-app-attendedsysupgrade
 sed -i "/attendedsysupgrade/d" $(find ./feeds/luci/collections/ -type f -name "Makefile")
 #修改默认主题
