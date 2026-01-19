@@ -12,4 +12,4 @@ https://mirrors.pku.edu.cn/immortalwrt/snapshots/packages/aarch64_cortex-a53/pac
 https://mirrors.pku.edu.cn/immortalwrt/snapshots/packages/aarch64_cortex-a53/routing/packages.adb
 https://mirrors.pku.edu.cn/immortalwrt/snapshots/packages/aarch64_cortex-a53/telephony/packages.adb
 https://mirrors.pku.edu.cn/immortalwrt/snapshots/packages/aarch64_cortex-a53/video/packages.adb
-配置会相信的介绍
+
