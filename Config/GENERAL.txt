@@ -1,10 +1,4 @@
 #科学插件调整
-
-# CONFIG_SIGNATURE_CHECK is not set
-# CONFIG_SIGNED_PACKAGES is not set
-# CONFIG_SIGN_EACH_PACKAGE is not set
-# CONFIG_SIGN_FIRMWARE is not set
-# CONFIG_SIGN_FIRMWARE is not set
 CONFIG_PACKAGE_luci-app-syncdial=n
 CONFIG_PACKAGE_luci-app-mwan3=n
 CONFIG_PACKAGE_luci-app-ttyd=y
