@@ -1,5 +1,4 @@
 #科学插件调整
-# CONFIG_SIGN_FIRMWARE is not set
 CONFIG_PACKAGE_luci-app-syncdial=n
 CONFIG_PACKAGE_luci-app-mwan3=n
 CONFIG_PACKAGE_luci-app-ttyd=y
