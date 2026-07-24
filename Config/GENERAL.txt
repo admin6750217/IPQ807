@@ -1,4 +1,8 @@
 #科学插件调整
+# CONFIG_SIGN_FIRMWARE is not set
+不刚刚说没有重置按钮了吗，改这个
+@最后一舞 
+@群技术地下室，只会复制粘贴 
 CONFIG_PACKAGE_luci-app-syncdial=n
 CONFIG_PACKAGE_luci-app-mwan3=n
 CONFIG_PACKAGE_luci-app-ttyd=y
